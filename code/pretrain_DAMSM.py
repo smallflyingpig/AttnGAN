@@ -28,6 +28,8 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 
+from tensorboardX import SummaryWriter
+
 
 dir_path = (os.path.abspath(os.path.join(os.path.realpath(__file__), './.')))
 sys.path.append(dir_path)
@@ -47,7 +49,7 @@ def parse_args():
 
 
 def train(dataloader, cnn_model, rnn_model, batch_size,
-          labels, optimizer, epoch, ixtoword, image_dir):
+          labels, optimizer, epoch, ixtoword, image_dir, writer):
     cnn_model.train()
     rnn_model.train()
     s_total_loss0 = 0
@@ -97,6 +99,14 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
                                       cfg.TRAIN.RNN_GRAD_CLIP)
         optimizer.step()
 
+        writer.add_scalars(main_tag="batch_loss", tag_scalar_dict={
+            "loss":loss.cpu().item(),
+            "w_loss0":w_loss0.cpu().item(),
+            "w_loss1":w_loss1.cpu().item(),
+            "s_loss0":s_loss0.cpu().item(),
+            "s_loss1":s_loss1.cpu().item()
+        }, global_step=epoch * len(dataloader) + step)
+
         if step % UPDATE_INTERVAL == 0:
             count = epoch * len(dataloader) + step
 
@@ -127,6 +137,7 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
                 im = Image.fromarray(img_set)
                 fullpath = '%s/attention_maps%d.png' % (image_dir, step)
                 im.save(fullpath)
+                writer.add_image(tag="image_DAMSM", img_tensor=transforms.ToTensor()(im), global_step=count)
     return count
 
 
@@ -167,7 +178,7 @@ def build_models():
     # build model ############################################################
     text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
     image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
-    labels = Variable(torch.LongTensor(range(batch_size)))
+    labels = torch.LongTensor(range(batch_size))
     start_epoch = 0
     if cfg.TRAIN.NET_E != '':
         state_dict = torch.load(cfg.TRAIN.NET_E)
@@ -223,10 +234,12 @@ if __name__ == "__main__":
     output_dir = '../output/%s_%s_%s' % \
         (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp)
 
+    log_dir = os.path.join(output_dir, 'Log')
     model_dir = os.path.join(output_dir, 'Model')
     image_dir = os.path.join(output_dir, 'Image')
     mkdir_p(model_dir)
     mkdir_p(image_dir)
+    mkdir_p(log_dir)
 
     torch.cuda.set_device(cfg.GPU_ID)
     cudnn.benchmark = True
@@ -255,7 +268,7 @@ if __name__ == "__main__":
     dataloader_val = torch.utils.data.DataLoader(
         dataset_val, batch_size=batch_size, drop_last=True,
         shuffle=True, num_workers=int(cfg.WORKERS))
-
+    writer = SummaryWriter(log_dir=log_dir)
     # Train ##############################################################
     text_encoder, image_encoder, labels, start_epoch = build_models()
     para = list(text_encoder.parameters())
@@ -271,7 +284,7 @@ if __name__ == "__main__":
             epoch_start_time = time.time()
             count = train(dataloader, image_encoder, text_encoder,
                           batch_size, labels, optimizer, epoch,
-                          dataset.ixtoword, image_dir)
+                          dataset.ixtoword, image_dir, writer)
             print('-' * 89)
             if len(dataloader_val) > 0:
                 s_loss, w_loss = evaluate(dataloader_val, image_encoder,

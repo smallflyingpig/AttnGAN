@@ -251,7 +251,7 @@ class TextDataset(data.Dataset):
     def load_class_id(self, data_dir, total_num):
         if os.path.isfile(data_dir + '/class_info.pickle'):
             with open(data_dir + '/class_info.pickle', 'rb') as f:
-                class_id = pickle.load(f)
+                class_id = pickle.load(f, encoding="bytes")
         else:
             class_id = np.arange(total_num)
         return class_id
@@ -260,7 +260,7 @@ class TextDataset(data.Dataset):
         filepath = '%s/%s/filenames.pickle' % (data_dir, split)
         if os.path.isfile(filepath):
             with open(filepath, 'rb') as f:
-                filenames = pickle.load(f)
+                filenames = pickle.load(f, encoding="bytes")
             print('Load filenames from: %s (%d)' % (filepath, len(filenames)))
         else:
             filenames = []
