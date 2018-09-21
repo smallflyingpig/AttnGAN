@@ -6,8 +6,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
+import torchvision.transforms as transforms
 
 from PIL import Image
+
+from tensorboardX import SummaryWriter
 
 from miscc.config import cfg
 from miscc.utils import mkdir_p
@@ -30,8 +33,11 @@ class condGANTrainer(object):
         if cfg.TRAIN.FLAG:
             self.model_dir = os.path.join(output_dir, 'Model')
             self.image_dir = os.path.join(output_dir, 'Image')
+            self.log_dir = os.path.join(output_dir, "Log")
             mkdir_p(self.model_dir)
             mkdir_p(self.image_dir)
+            mkdir_p(self.log_dir)
+            self.writer = SummaryWriter(self.log_dir)
 
         torch.cuda.set_device(cfg.GPU_ID)
         cudnn.benchmark = True
@@ -214,6 +220,7 @@ class condGANTrainer(object):
             fullpath = '%s/D_%s_%d.png'\
                 % (self.image_dir, name, gen_iterations)
             im.save(fullpath)
+            self.writer.add_image(tag="image_attn", img_tensor=transforms.ToTensor()(im), global_step=gen_iterations)
 
     def train(self):
         text_encoder, image_encoder, netG, netsD, start_epoch = self.build_models()
@@ -223,8 +230,8 @@ class condGANTrainer(object):
 
         batch_size = self.batch_size
         nz = cfg.GAN.Z_DIM
-        noise = Variable(torch.FloatTensor(batch_size, nz))
-        fixed_noise = Variable(torch.FloatTensor(batch_size, nz).normal_(0, 1))
+        noise = (torch.FloatTensor(batch_size, nz).requires_grad_())
+        fixed_noise = (torch.FloatTensor(batch_size, nz).normal_(0, 1).requires_grad_())
         if cfg.CUDA:
             noise, fixed_noise = noise.cuda(), fixed_noise.cuda()
 
@@ -265,6 +272,7 @@ class condGANTrainer(object):
                 # (3) Update D network
                 ######################################################
                 errD_total = 0
+                errD_seq = []
                 D_logs = ''
                 for i in range(len(netsD)):
                     netsD[i].zero_grad()
@@ -273,6 +281,7 @@ class condGANTrainer(object):
                     # backward and update parameters
                     errD.backward()
                     optimizersD[i].step()
+                    errD_seq.append(errD)
                     errD_total += errD
                     D_logs += 'errD%d: %.2f ' % (i, errD.data[0])
 
@@ -286,7 +295,7 @@ class condGANTrainer(object):
                 # do not need to compute gradient for Ds
                 # self.set_requires_grad_value(netsD, False)
                 netG.zero_grad()
-                errG_total, G_logs = \
+                errG_total, G_logs, lossG_seq = \
                     generator_loss(netsD, image_encoder, fake_imgs, real_labels,
                                    words_embs, sent_emb, match_labels, cap_lens, class_ids)
                 kl_loss = KL_loss(mu, logvar)
@@ -298,6 +307,21 @@ class condGANTrainer(object):
                 for p, avg_p in zip(netG.parameters(), avg_param_G):
                     avg_p.mul_(0.999).add_(0.001, p.data)
 
+
+                self.writer.add_scalars(main_tag="loss_d", tag_scalar_dict={
+                    "loss_d":errD_total
+                }, global_step=gen_iterations)
+                for idx in range(len(netsD)):
+                    self.writer.add_scalars(main_tag="loss_d", tag_scalar_dict={
+                        "loss_d_{:d}".format(idx):errD_seq[idx]
+                    }, global_step=gen_iterations)
+                self.writer.add_scalars(main_tag="loss_g", tag_scalar_dict={
+                    "loss_g":errG_total,
+                    "loss_g_gan":lossG_seq[0],
+                    "loss_g_w":lossG_seq[1],
+                    "loss_g_s":lossG_seq[2],
+                    "kl_loss":kl_loss
+                }, global_step=gen_iterations)
                 if gen_iterations % 100 == 0:
                     print(D_logs + '\n' + G_logs)
                 # save images

@@ -203,7 +203,7 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
 
             errG_total += w_loss + s_loss
             logs += 'w_loss: %.2f s_loss: %.2f ' % (w_loss.data[0], s_loss.data[0])
-    return errG_total, logs
+    return errG_total, logs, (g_loss, w_loss, s_loss)
 
 
 ##################################################################

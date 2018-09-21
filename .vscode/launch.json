@@ -11,7 +11,8 @@
             "request": "launch",
             "program": "${file}",
             "args": [
-                "--cfg=cfg/DAMSM/coco.yml",
+                //"--cfg=cfg/coco_attn2.yml",
+                "--cfg=cfg/eval_bird.yml",
                 "--gpu=0",
             ],
             "cwd":"~/lijiguo/workspace/AttnGAN/code"
