@@ -11,7 +11,7 @@ from copy import deepcopy
 import skimage.transform
 
 from miscc.config import cfg
-
+import matplotlib.font_manager as fm
 
 # For visualization ################################################
 COLOR_DIC = {0:[128,64,128],  1:[244, 35,232],
