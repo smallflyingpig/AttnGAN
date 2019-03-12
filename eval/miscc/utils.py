@@ -58,7 +58,7 @@ def build_super_images2(real_imgs, captions, cap_lens, ixtoword,
                            dtype=np.uint8)
 
     real_imgs = \
-        nn.Upsample(size=(vis_size, vis_size), mode='bilinear')(real_imgs)
+        nn.functional.interpolate(real_imgs, size=(vis_size, vis_size), mode='bilinear')
     # [-1, 1] --> [0, 1]
     real_imgs.add_(1).div_(2).mul_(255)
     real_imgs = real_imgs.data.numpy()
@@ -142,7 +142,7 @@ def build_super_images2(real_imgs, captions, cap_lens, ixtoword,
         txt = np.concatenate(txt_new[:topK], 1)
         if txt.shape[1] != row.shape[1]:
             print('Warnings: txt', txt.shape, 'row', row.shape,
-                  'row_merge_new', row_merge_new.shape)
+                  'row_merge_new', len(row_merge_new))
             bUpdate = 0
             break
         row = np.concatenate([txt, row_merge], 0)

@@ -38,7 +38,7 @@ def conv3x3(in_planes, out_planes):
 # Upsale the spatial size by a factor of 2
 def upBlock(in_planes, out_planes):
     block = nn.Sequential(
-        nn.Upsample(scale_factor=2, mode='nearest'),
+        nn.Upsample(scale_factor=2, mode='nearest', align_corners=True),
         conv3x3(in_planes, out_planes * 2),
         nn.BatchNorm2d(out_planes * 2),
         GLU())
@@ -160,8 +160,10 @@ class RNN_ENCODER(nn.Module):
 
 
 class CNN_ENCODER(nn.Module):
-    def __init__(self, nef):
+    def __init__(self, nef, condition=False, condition_channel=1):
         super(CNN_ENCODER, self).__init__()
+        self.condition = condition
+        self.condition_channel = condition_channel
         if cfg.TRAIN.FLAG:
             self.nef = nef
         else:
@@ -192,22 +194,56 @@ class CNN_ENCODER(nn.Module):
         self.Mixed_6c = model.Mixed_6c
         self.Mixed_6d = model.Mixed_6d
         self.Mixed_6e = model.Mixed_6e
-        self.Mixed_7a = model.Mixed_7a
-        self.Mixed_7b = model.Mixed_7b
-        self.Mixed_7c = model.Mixed_7c
+        if self.condition:
+            self.Mixed_7a = models.inception.InceptionD(768+self.condition_channel)
+            self.Mixed_7b = models.inception.InceptionE(1280+self.condition_channel)
+            self.Mixed_7c = models.inception.InceptionE(2048)
+            #self.fc = nn.Linear(2048, num_classes)
+        else:
+            self.Mixed_7a = model.Mixed_7a
+            self.Mixed_7b = model.Mixed_7b
+            self.Mixed_7c = model.Mixed_7c
 
-        self.emb_features = conv1x1(768, self.nef)
-        self.emb_cnn_code = nn.Linear(2048, self.nef)
+        if self.condition:
+            self.emb_features = conv1x1(768+self.condition_channel, self.nef)
+            self.emb_cnn_code = nn.Linear(2048, self.nef)
+        else:
+            self.emb_features = conv1x1(768, self.nef)
+            self.emb_cnn_code = nn.Linear(2048, self.nef)
+        
+        
 
     def init_trainable_weights(self):
         initrange = 0.1
         self.emb_features.weight.data.uniform_(-initrange, initrange)
         self.emb_cnn_code.weight.data.uniform_(-initrange, initrange)
+        if self.condition:
+            for m in [self.Mixed_7a, self.Mixed_7b, self.Mixed_7c]:
+                if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                    import scipy.stats as stats
+                    stddev = m.stddev if hasattr(m, 'stddev') else 0.1
+                    X = stats.truncnorm(-2, 2, scale=stddev)
+                    values = torch.Tensor(X.rvs(m.weight.data.numel()))
+                    values = values.view(m.weight.data.size())
+                    m.weight.data.copy_(values)
+                elif isinstance(m, nn.BatchNorm2d):
+                    m.weight.data.fill_(1)
+                    m.bias.data.zero_()
+            
 
     def forward(self, x):
+        if self.condition:
+            x, c = x[:,: -self.condition_channel], x[:, -self.condition_channel]
+            if len(c.shape)<len(x.shape):
+                c = c.unsqueeze(1)
+            elif len(x.shape)<len(c.shape):
+                x = x.unsqueeze(1)
+            else:
+                pass
+
         features = None
         # --> fixed-size input: batch x 3 x 299 x 299
-        x = nn.Upsample(size=(299, 299), mode='bilinear')(x)
+        x = F.interpolate(x, size=(299, 299), mode='bilinear', align_corners=True)
         # 299 x 299 x 3
         x = self.Conv2d_1a_3x3(x)
         # 149 x 149 x 32
@@ -242,10 +278,15 @@ class CNN_ENCODER(nn.Module):
         x = self.Mixed_6e(x)
         # 17 x 17 x 768
 
+        if self.condition:
+            c = F.interpolate(c, size=17)
+            x = torch.cat([x, c], dim=1)
         # image region features
         features = x
         # 17 x 17 x 768
-
+        
+            
+        
         x = self.Mixed_7a(x)
         # 8 x 8 x 1280
         x = self.Mixed_7b(x)
@@ -258,6 +299,7 @@ class CNN_ENCODER(nn.Module):
         # 1 x 1 x 2048
         x = x.view(x.size(0), -1)
         # 2048
+        # x = self.fc(x)
 
         # global image features
         cnn_code = self.emb_cnn_code(x)
@@ -265,6 +307,8 @@ class CNN_ENCODER(nn.Module):
         if features is not None:
             features = self.emb_features(features)
         return features, cnn_code
+
+    
 
 
 # ############## G networks ###################

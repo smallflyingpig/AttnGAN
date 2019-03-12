@@ -87,16 +87,54 @@ def get_imgs(img_path, imsize, bbox=None,
 
     return ret
 
+def get_imgs_with_mask(img_path, imsize, bbox=None,
+             transform=None, normalize=None):
+    img = Image.open(img_path).convert('RGBA')
+    # get the path for mask
+    img_path_split = img_path.split('/')
+    mask_path =  os.path.join(*img_path_split[:-3], "segmentations", *img_path_split[-2:])
+    # ext
+    mask_path = os.path.splitext(mask_path)[0] + ".png"
+    mask = Image.open(mask_path).convert('RGBA')
+    width, height = img.size
+    if bbox is not None:
+        r = int(np.maximum(bbox[2], bbox[3]) * 0.75)
+        center_x = int((2 * bbox[0] + bbox[2]) / 2)
+        center_y = int((2 * bbox[1] + bbox[3]) / 2)
+        y1 = np.maximum(0, center_y - r)
+        y2 = np.minimum(height, center_y + r)
+        x1 = np.maximum(0, center_x - r)
+        x2 = np.minimum(width, center_x + r)
+        img.paste(mask, (0,0), mask)
+        img = img.crop([x1, y1, x2, y2]) 
+
+    if transform is not None:
+        img = transform(img)
+
+    ret = []
+    if cfg.GAN.B_DCGAN:
+        ret = [normalize(img)]
+    else:
+        for i in range(cfg.TREE.BRANCH_NUM):
+            # print(imsize[i])
+            if i < (cfg.TREE.BRANCH_NUM - 1):
+                re_img = transforms.Resize(imsize[i])(img)
+            else:
+                re_img = img
+            ret.append(normalize(re_img))
+
+    return ret
 
 class TextDataset(data.Dataset):
     def __init__(self, data_dir, split='train',
                  base_size=64,
-                 transform=None, target_transform=None):
+                 transform=None, target_transform=None, mask=False):
         self.transform = transform
         self.norm = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
         self.target_transform = target_transform
+        self.mask = mask
         self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE
 
         self.imsize = []
@@ -117,6 +155,8 @@ class TextDataset(data.Dataset):
 
         self.class_id = self.load_class_id(split_dir, len(self.filenames))
         self.number_example = len(self.filenames)
+
+        self.get_imgs = get_imgs_with_mask if self.mask else get_imgs
 
     def load_bbox(self):
         data_dir = self.data_dir
@@ -300,8 +340,9 @@ class TextDataset(data.Dataset):
             data_dir = self.data_dir
         #
         img_name = '%s/images/%s.jpg' % (data_dir, key)
-        imgs = get_imgs(img_name, self.imsize,
+        imgs = self.get_imgs(img_name, self.imsize,
                         bbox, self.transform, normalize=self.norm)
+        # load 
         # random select a sentence
         sent_ix = random.randint(0, self.embeddings_num)
         new_sent_ix = index * self.embeddings_num + sent_ix
