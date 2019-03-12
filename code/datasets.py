@@ -151,11 +151,11 @@ def get_imgs_with_mask(img_path, imsize, bbox=None,
             re_img = transforms.Resize((re_img_size, re_img_size))(img)
             re_mask = transforms.Resize((re_img_size, re_img_size))(mask)
 
-            re_img, re_mask = normalize(re_img), normalize(re_mask)
+            re_img, re_mask = transforms.ToTensor()(re_img), transforms.ToTensor()(re_mask)
             if len(re_mask.shape) < len(re_img.shape):
                 re_mask = re_mask.unsqueeze(0)
             #print(re_img.shape, re_mask.shape)
-            ret.append(torch.cat([re_img, re_mask], dim=0))
+            ret.append(normalize(torch.cat([re_img, re_mask], dim=0)))
 
     #print(len(ret))
     # random crop
@@ -172,7 +172,6 @@ class TextDataset(data.Dataset):
         self.transform = transform
         self.img_channel = 4 if mask else 3
         self.norm = transforms.Compose([
-            transforms.ToTensor(),
             transforms.Normalize((0.5,)*self.img_channel, (0.5,)*self.img_channel)])
         self.target_transform = target_transform
         self.mask = mask
