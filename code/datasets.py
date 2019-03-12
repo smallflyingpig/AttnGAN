@@ -55,6 +55,23 @@ def prepare_data(data):
     return [real_imgs, captions, sorted_cap_lens,
             class_ids, keys]
 
+def get_crop_params(img, output_size):
+        """Get parameters for ``crop`` for a random crop.
+        Args:
+            img (PIL Image): Image to be cropped.
+            output_size (tuple): Expected output size of the crop.
+        Returns:
+            tuple: params (i, j, h, w) to be passed to ``crop`` for random crop.
+        """
+        w, h = img.shape[-2:]
+        th, tw = output_size
+        if w == tw and h == th:
+            return 0, 0, h, w
+
+        i = random.randint(0, h - th)
+        j = random.randint(0, w - tw)
+        return i, j, th, tw
+
 
 def get_imgs(img_path, imsize, bbox=None,
              transform=None, normalize=None):
@@ -72,7 +89,7 @@ def get_imgs(img_path, imsize, bbox=None,
 
     if transform is not None:
         img = transform(img)
-
+    
     ret = []
     if cfg.GAN.B_DCGAN:
         ret = [normalize(img)]
@@ -84,18 +101,19 @@ def get_imgs(img_path, imsize, bbox=None,
             else:
                 re_img = img
             ret.append(normalize(re_img))
+    
 
     return ret
 
 def get_imgs_with_mask(img_path, imsize, bbox=None,
              transform=None, normalize=None):
-    img = Image.open(img_path).convert('RGBA')
+    img = Image.open(img_path).convert('RGB')
     # get the path for mask
     img_path_split = img_path.split('/')
     mask_path =  os.path.join(*img_path_split[:-3], "segmentations", *img_path_split[-2:])
     # ext
     mask_path = os.path.splitext(mask_path)[0] + ".png"
-    mask = Image.open(mask_path).convert('RGBA')
+    mask = Image.open(mask_path).convert('L')
     width, height = img.size
     if bbox is not None:
         r = int(np.maximum(bbox[2], bbox[3]) * 0.75)
@@ -105,23 +123,45 @@ def get_imgs_with_mask(img_path, imsize, bbox=None,
         y2 = np.minimum(height, center_y + r)
         x1 = np.maximum(0, center_x - r)
         x2 = np.minimum(width, center_x + r)
-        img.paste(mask, (0,0), mask)
+        
         img = img.crop([x1, y1, x2, y2]) 
+        mask = mask.crop([x1, y1, x2, y2])
 
     if transform is not None:
         img = transform(img)
+        mask = transform(mask)
 
     ret = []
+    # print(cfg.TREE)
     if cfg.GAN.B_DCGAN:
-        ret = [normalize(img)]
+        img, mask = normalize(img), normalize(mask)
+        if len(mask.shape)<len(img.shape):
+            mask = mask.unsqueeze(1)
+        ret = [torch.cat([img, mask], dim=1)]
     else:
         for i in range(cfg.TREE.BRANCH_NUM):
             # print(imsize[i])
-            if i < (cfg.TREE.BRANCH_NUM - 1):
-                re_img = transforms.Resize(imsize[i])(img)
-            else:
-                re_img = img
-            ret.append(normalize(re_img))
+            # if i < (cfg.TREE.BRANCH_NUM-1):
+            #     re_img = transforms.Resize(imsize[i]*5/4)(img)
+            #     re_mask = transforms.Resize(imsize[i]*5/4)(mask)
+            # else:
+            #     re_img = img
+            #     re_mask = mask
+            re_img_size = int(imsize[i]*5/4)
+            re_img = transforms.Resize((re_img_size, re_img_size))(img)
+            re_mask = transforms.Resize((re_img_size, re_img_size))(mask)
+
+            re_img, re_mask = normalize(re_img), normalize(re_mask)
+            if len(re_mask.shape) < len(re_img.shape):
+                re_mask = re_mask.unsqueeze(0)
+            #print(re_img.shape, re_mask.shape)
+            ret.append(torch.cat([re_img, re_mask], dim=0))
+
+    #print(len(ret))
+    # random crop
+    for idx, (img_, img_size) in enumerate(zip(ret, imsize)):
+        i, j, th, tw = get_crop_params(img_, (img_size, img_size))
+        ret[idx] = img_[:, i:i+th, j:j+tw]
 
     return ret
 
