@@ -130,9 +130,10 @@ class TextDataset(data.Dataset):
                  base_size=64,
                  transform=None, target_transform=None, mask=False):
         self.transform = transform
+        self.img_channel = 4 if mask else 3
         self.norm = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+            transforms.Normalize((0.5,)*self.img_channel, (0.5,)*self.img_channel)])
         self.target_transform = target_transform
         self.mask = mask
         self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE
