@@ -11,7 +11,6 @@ from copy import deepcopy
 import skimage.transform
 
 from miscc.config import cfg
-import matplotlib.font_manager as fm
 
 # For visualization ################################################
 COLOR_DIC = {0:[128,64,128],  1:[244, 35,232],
@@ -33,7 +32,7 @@ def drawCaption(convas, captions, ixtoword, vis_size, off1=2, off2=2):
     # get a font
     # fnt = None  # ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 50)
     # fnt = ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 50)
-    fnt = ImageFont.truetype(fm.findfont(fm.FontProperties(family=combo.get())), 50) 
+    fnt = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 50) 
     # get a drawing context
     d = ImageDraw.Draw(img_txt)
     sentence_list = []
