@@ -283,7 +283,7 @@ class condGANTrainer(object):
                     optimizersD[i].step()
                     errD_seq.append(errD)
                     errD_total += errD
-                    D_logs += 'errD%d: %.2f ' % (i, errD.data[0])
+                    D_logs += 'errD%d: %.2f ' % (i, errD.item())
 
                 #######################################################
                 # (4) Update G network: maximize log(D(G(z)))
@@ -300,7 +300,7 @@ class condGANTrainer(object):
                                    words_embs, sent_emb, match_labels, cap_lens, class_ids)
                 kl_loss = KL_loss(mu, logvar)
                 errG_total += kl_loss
-                G_logs += 'kl_loss: %.2f ' % kl_loss.data[0]
+                G_logs += 'kl_loss: %.2f ' % kl_loss.item()
                 # backward and update parameters
                 errG_total.backward()
                 optimizerG.step()
@@ -342,7 +342,7 @@ class condGANTrainer(object):
             print('''[%d/%d][%d]
                   Loss_D: %.2f Loss_G: %.2f Time: %.2fs'''
                   % (epoch, self.max_epoch, self.num_batches,
-                     errD_total.data[0], errG_total.data[0],
+                     errD_total.item(), errG_total.item(),
                      end_t - start_t))
 
             if epoch % cfg.TRAIN.SNAPSHOT_INTERVAL == 0:  # and epoch != 0:
@@ -394,7 +394,7 @@ class condGANTrainer(object):
 
             batch_size = self.batch_size
             nz = cfg.GAN.Z_DIM
-            noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
+            noise = (torch.FloatTensor(batch_size, nz).requires_grad_(False))
             noise = noise.cuda()
 
             model_dir = cfg.TRAIN.NET_G
@@ -411,7 +411,7 @@ class condGANTrainer(object):
 
             cnt = 0
 
-            for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
+            for range_idx in range(cfg.TEXT.CAPTIONS_PER_IMAGE):
                 for step, data in enumerate(self.data_loader, 0):
                     cnt += batch_size
                     if step % 100 == 0:
@@ -450,7 +450,7 @@ class condGANTrainer(object):
                         im = im.astype(np.uint8)
                         im = np.transpose(im, (1, 2, 0))
                         im = Image.fromarray(im)
-                        fullpath = '%s_s%d.png' % (s_tmp, k)
+                        fullpath = '%s_s%d_%d.png' % (s_tmp, k, range_idx)
                         im.save(fullpath)
 
     def gen_example(self, data_dic):
@@ -487,13 +487,13 @@ class condGANTrainer(object):
 
                 batch_size = captions.shape[0]
                 nz = cfg.GAN.Z_DIM
-                captions = Variable(torch.from_numpy(captions), volatile=True)
-                cap_lens = Variable(torch.from_numpy(cap_lens), volatile=True)
+                captions = (torch.from_numpy(captions).requires_grad_(False))
+                cap_lens = (torch.from_numpy(cap_lens).requires_grad_(False))
 
                 captions = captions.cuda()
                 cap_lens = cap_lens.cuda()
                 for i in range(1):  # 16
-                    noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
+                    noise = (torch.FloatTensor(batch_size, nz).requires_grad_(False))
                     noise = noise.cuda()
                     #######################################################
                     # (1) Extract text embeddings
