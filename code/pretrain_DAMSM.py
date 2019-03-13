@@ -56,7 +56,7 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
     s_total_loss1 = 0
     w_total_loss0 = 0
     w_total_loss1 = 0
-    count = (epoch + 1) * len(dataloader)
+    count = (epoch) * len(dataloader)
     start_time = time.time()
     for step, data in enumerate(dataloader, 0):
         # print('step', step)
@@ -118,8 +118,8 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
 
             elapsed = time.time() - start_time
             print('| epoch {:3d} | {:5d}/{:5d} batches | ms/batch {:5.2f} | '
-                  's_loss {:5.2f} {:5.2f} | '
-                  'w_loss {:5.2f} {:5.2f}'
+                  's_loss {:6.4f} {:6.4f} | '
+                  'w_loss {:6.4f} {:6.4f}'
                   .format(epoch, step, len(dataloader),
                           elapsed * 1000. / UPDATE_INTERVAL,
                           s_cur_loss0, s_cur_loss1,
@@ -131,17 +131,17 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
             start_time = time.time()
             # attention Maps
             img_set, _ = \
-                build_super_images(imgs[-1][:,:-1].cpu(), captions,
+                build_super_images(imgs[-1][:,:3].cpu(), captions,
                                    ixtoword, attn_maps, att_sze)
             if img_set is not None:
                 im = Image.fromarray(img_set)
-                fullpath = '%s/attention_maps%d.png' % (image_dir, step)
+                fullpath = '%s/attention_maps%d.png' % (image_dir, count)
                 im.save(fullpath)
                 writer.add_image(tag="image_DAMSM", img_tensor=transforms.ToTensor()(im), global_step=count)
     return count
 
 
-def evaluate(dataloader, cnn_model, rnn_model, batch_size):
+def evaluate(dataloader, cnn_model, rnn_model, batch_size, writer, count, ixtoword):
     cnn_model.eval()
     rnn_model.eval()
     s_total_loss = 0
@@ -153,6 +153,7 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size):
         words_features, sent_code = cnn_model(real_imgs[-1])
         # nef = words_features.size(1)
         # words_features = words_features.view(batch_size, nef, -1)
+        nef, att_sze = words_features.size(1), words_features.size(2)
 
         hidden = rnn_model.init_hidden(batch_size)
         words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
@@ -171,6 +172,21 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size):
     s_cur_loss = s_total_loss / step
     w_cur_loss = w_total_loss / step
 
+    writer.add_scalars( main_tag="eval_loss", tag_scalar_dict={
+                        's_loss':s_cur_loss,
+                        'w_loss':w_cur_loss
+                    }, global_step=count
+    )
+    # save a image
+    # attention Maps
+    img_set, _ = \
+        build_super_images(real_imgs[-1][:,:3].cpu(), captions,
+                           ixtoword, attn, att_sze)
+    if img_set is not None:
+        im = Image.fromarray(img_set)
+        fullpath = '%s/attention_maps_eval_%d.png' % (image_dir, count)
+        im.save(fullpath)
+        writer.add_image(tag="image_DAMSM_eval", img_tensor=transforms.ToTensor()(im), global_step=count)
     return s_cur_loss, w_cur_loss
 
 
@@ -248,7 +264,7 @@ if __name__ == "__main__":
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM-1))
     batch_size = cfg.TRAIN.BATCH_SIZE
     image_transform = transforms.Compose([
-        transforms.Resize(int(imsize * 76 / 64)),
+        transforms.Resize(int(imsize * 80 / 64)),
         #transforms.RandomCrop(imsize),
         #transforms.RandomHorizontalFlip()
         ])
@@ -291,9 +307,9 @@ if __name__ == "__main__":
             print('-' * 89)
             if len(dataloader_val) > 0:
                 s_loss, w_loss = evaluate(dataloader_val, image_encoder,
-                                          text_encoder, batch_size)
+                                          text_encoder, batch_size, writer, count, dataset.ixtoword)
                 print('| end epoch {:3d} | valid loss '
-                      '{:5.2f} {:5.2f} | lr {:.5f}|'
+                      '{:6.4f} {:6.4f} | lr {:.5f}|'
                       .format(epoch, s_loss, w_loss, lr))
             print('-' * 89)
             if lr > cfg.TRAIN.ENCODER_LR/10.:

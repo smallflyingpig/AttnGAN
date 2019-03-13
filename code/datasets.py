@@ -96,12 +96,20 @@ def get_imgs(img_path, imsize, bbox=None,
     else:
         for i in range(cfg.TREE.BRANCH_NUM):
             # print(imsize[i])
-            if i < (cfg.TREE.BRANCH_NUM - 1):
-                re_img = transforms.Resize(imsize[i])(img)
-            else:
-                re_img = img
+            # if i < (cfg.TREE.BRANCH_NUM - 1):
+            #     re_img_size = int(imsize[i]*5/4)
+            #     re_img = transforms.Resize((re_img_size, re_img_size))(img)
+            # else:
+            #     re_img = img
+            re_img_size = int(imsize[i]*5/4)
+            re_img = transforms.Resize((re_img_size, re_img_size))(img)
+            re_img = transforms.ToTensor()(re_img)
             ret.append(normalize(re_img))
+
     
+    for idx, (img_, img_size) in enumerate(zip(ret, imsize)):
+        i, j, th, tw = get_crop_params(img_, (img_size, img_size))
+        ret[idx] = img_[:, i:i+th, j:j+tw]
 
     return ret
 
