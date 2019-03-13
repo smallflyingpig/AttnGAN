@@ -343,7 +343,7 @@ class condGANTrainer(object):
             end_t = time.time()
 
             self.logger.info('''[{}/{}][{}]
-                Loss_D: {:.2f} Loss_G: {:.2f} Time: {:.2fs}'''.format(
+                Loss_D: {:.2f} Loss_G: {:.2f} Time: {:.2f}'''.format(
                 epoch, self.max_epoch, self.num_batches,
                 errD_total.item(), errG_total.item(),
                 end_t - start_t))
