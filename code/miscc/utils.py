@@ -1,4 +1,5 @@
 import os
+import sys
 import errno
 import numpy as np
 from torch.nn import init
@@ -9,6 +10,7 @@ import torch.nn as nn
 from PIL import Image, ImageDraw, ImageFont
 from copy import deepcopy
 import skimage.transform
+import logging
 
 from miscc.config import cfg
 
@@ -156,6 +158,7 @@ def build_super_images(real_imgs, captions, ixtoword,
                 merged = post_pad
             row.append(one_map)
             row.append(middle_pad)
+            # print(one_map.shape, middle_pad.shape)
             #
             row_merge.append(merged)
             row_merge.append(middle_pad)
@@ -314,3 +317,16 @@ def mkdir_p(path):
             pass
         else:
             raise
+
+def get_logger(log_dir, filename='log.txt'):
+    logger = logging.getLogger(os.path.split(log_dir)[-1])
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler(os.path.join(log_dir, filename))
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter('%(asctime)-15s %(message)s'))
+    logger.addHandler(fh)
+    fh = logging.StreamHandler(sys.stdout)
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(fh)
+    return logger

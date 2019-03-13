@@ -38,7 +38,7 @@ def conv3x3(in_planes, out_planes):
 # Upsale the spatial size by a factor of 2
 def upBlock(in_planes, out_planes):
     block = nn.Sequential(
-        nn.Upsample(scale_factor=2, mode='nearest', align_corners=True),
+        nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
         conv3x3(in_planes, out_planes * 2),
         nn.BatchNorm2d(out_planes * 2),
         GLU())
@@ -425,11 +425,11 @@ class NEXT_STAGE_G(nn.Module):
 
 
 class GET_IMAGE_G(nn.Module):
-    def __init__(self, ngf):
+    def __init__(self, ngf, channel=3):
         super(GET_IMAGE_G, self).__init__()
         self.gf_dim = ngf
         self.img = nn.Sequential(
-            conv3x3(ngf, 3),
+            conv3x3(ngf, channel),
             nn.Tanh()
         )
 
@@ -444,18 +444,19 @@ class G_NET(nn.Module):
         ngf = cfg.GAN.GF_DIM
         nef = cfg.TEXT.EMBEDDING_DIM
         ncf = cfg.GAN.CONDITION_DIM
+        img_channel = 4 if cfg.TRAIN.MASK_COND else 3
         self.ca_net = CA_NET()
 
         if cfg.TREE.BRANCH_NUM > 0:
             self.h_net1 = INIT_STAGE_G(ngf * 16, ncf)
-            self.img_net1 = GET_IMAGE_G(ngf)
+            self.img_net1 = GET_IMAGE_G(ngf, img_channel)
         # gf x 64 x 64
         if cfg.TREE.BRANCH_NUM > 1:
             self.h_net2 = NEXT_STAGE_G(ngf, nef, ncf)
-            self.img_net2 = GET_IMAGE_G(ngf)
+            self.img_net2 = GET_IMAGE_G(ngf, img_channel)
         if cfg.TREE.BRANCH_NUM > 2:
             self.h_net3 = NEXT_STAGE_G(ngf, nef, ncf)
-            self.img_net3 = GET_IMAGE_G(ngf)
+            self.img_net3 = GET_IMAGE_G(ngf, img_channel)
 
     def forward(self, z_code, sent_emb, word_embs, mask):
         """
@@ -556,10 +557,10 @@ def downBlock(in_planes, out_planes):
 
 
 # Downsale the spatial size by a factor of 16
-def encode_image_by_16times(ndf):
+def encode_image_by_16times(ndf, input_channel=3):
     encode_img = nn.Sequential(
         # --> state size. ndf x in_size/2 x in_size/2
-        nn.Conv2d(3, ndf, 4, 2, 1, bias=False),
+        nn.Conv2d(input_channel, ndf, 4, 2, 1, bias=False),
         nn.LeakyReLU(0.2, inplace=True),
         # --> state size 2ndf x x in_size/4 x in_size/4
         nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
@@ -612,7 +613,8 @@ class D_NET64(nn.Module):
         super(D_NET64, self).__init__()
         ndf = cfg.GAN.DF_DIM
         nef = cfg.TEXT.EMBEDDING_DIM
-        self.img_code_s16 = encode_image_by_16times(ndf)
+        img_channel = 4 if cfg.TRAIN.MASK_COND else 3
+        self.img_code_s16 = encode_image_by_16times(ndf, img_channel)
         if b_jcu:
             self.UNCOND_DNET = D_GET_LOGITS(ndf, nef, bcondition=False)
         else:
@@ -626,11 +628,12 @@ class D_NET64(nn.Module):
 
 # For 128 x 128 images
 class D_NET128(nn.Module):
-    def __init__(self, b_jcu=True):
+    def __init__(self, b_jcu=True, img_channel=3):
         super(D_NET128, self).__init__()
         ndf = cfg.GAN.DF_DIM
         nef = cfg.TEXT.EMBEDDING_DIM
-        self.img_code_s16 = encode_image_by_16times(ndf)
+        img_channel = 4 if cfg.TRAIN.MASK_COND else 3
+        self.img_code_s16 = encode_image_by_16times(ndf, img_channel)
         self.img_code_s32 = downBlock(ndf * 8, ndf * 16)
         self.img_code_s32_1 = Block3x3_leakRelu(ndf * 16, ndf * 8)
         #
@@ -649,11 +652,12 @@ class D_NET128(nn.Module):
 
 # For 256 x 256 images
 class D_NET256(nn.Module):
-    def __init__(self, b_jcu=True):
+    def __init__(self, b_jcu=True, img_channel=3):
         super(D_NET256, self).__init__()
         ndf = cfg.GAN.DF_DIM
         nef = cfg.TEXT.EMBEDDING_DIM
-        self.img_code_s16 = encode_image_by_16times(ndf)
+        img_channel = 4 if cfg.TRAIN.MASK_COND else 3
+        self.img_code_s16 = encode_image_by_16times(ndf, img_channel)
         self.img_code_s32 = downBlock(ndf * 8, ndf * 16)
         self.img_code_s64 = downBlock(ndf * 16, ndf * 32)
         self.img_code_s64_1 = Block3x3_leakRelu(ndf * 32, ndf * 16)

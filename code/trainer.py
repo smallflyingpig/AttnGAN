@@ -29,7 +29,7 @@ import sys
 
 # ################# Text to image task############################ #
 class condGANTrainer(object):
-    def __init__(self, output_dir, data_loader, n_words, ixtoword):
+    def __init__(self, output_dir, data_loader, n_words, ixtoword, logger):
         if cfg.TRAIN.FLAG:
             self.model_dir = os.path.join(output_dir, 'Model')
             self.image_dir = os.path.join(output_dir, 'Image')
@@ -38,7 +38,7 @@ class condGANTrainer(object):
             mkdir_p(self.image_dir)
             mkdir_p(self.log_dir)
             self.writer = SummaryWriter(self.log_dir)
-
+        self.logger = logger
         torch.cuda.set_device(cfg.GPU_ID)
         cudnn.benchmark = True
 
@@ -54,17 +54,18 @@ class condGANTrainer(object):
     def build_models(self):
         # ###################encoders######################################## #
         if cfg.TRAIN.NET_E == '':
-            print('Error: no pretrained text-image encoders')
+            self.logger.error('Error: no pretrained text-image encoders')
             return
 
-        image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
+        image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM, condition=cfg.TRAIN.MASK_COND, condition_channel=1)
         img_encoder_path = cfg.TRAIN.NET_E.replace('text_encoder', 'image_encoder')
         state_dict = \
             torch.load(img_encoder_path, map_location=lambda storage, loc: storage)
+        
         image_encoder.load_state_dict(state_dict)
         for p in image_encoder.parameters():
             p.requires_grad = False
-        print('Load image encoder from:', img_encoder_path)
+        self.logger.info('Load image encoder from: {}'.format(img_encoder_path))
         image_encoder.eval()
 
         text_encoder = \
@@ -75,7 +76,7 @@ class condGANTrainer(object):
         text_encoder.load_state_dict(state_dict)
         for p in text_encoder.parameters():
             p.requires_grad = False
-        print('Load text encoder from:', cfg.TRAIN.NET_E)
+        self.logger.info('Load text encoder from: {}'.format(cfg.TRAIN.NET_E))
         text_encoder.eval()
 
         # #######################generator and discriminators############## #
@@ -105,14 +106,14 @@ class condGANTrainer(object):
         for i in range(len(netsD)):
             netsD[i].apply(weights_init)
             # print(netsD[i])
-        print('# of netsD', len(netsD))
+        self.logger.info('# of netsD: {}'.format(len(netsD)))
         #
         epoch = 0
         if cfg.TRAIN.NET_G != '':
             state_dict = \
                 torch.load(cfg.TRAIN.NET_G, map_location=lambda storage, loc: storage)
             netG.load_state_dict(state_dict)
-            print('Load G from: ', cfg.TRAIN.NET_G)
+            self.logger.info('Load G from: {}'.format(cfg.TRAIN.NET_G))
             istart = cfg.TRAIN.NET_G.rfind('_') + 1
             iend = cfg.TRAIN.NET_G.rfind('.')
             epoch = cfg.TRAIN.NET_G[istart:iend]
@@ -122,7 +123,7 @@ class condGANTrainer(object):
                 for i in range(len(netsD)):
                     s_tmp = Gname[:Gname.rfind('/')]
                     Dname = '%s/netD%d.pth' % (s_tmp, i)
-                    print('Load D from: ', Dname)
+                    self.logger.info('Load D from: {}'.format(Dname))
                     state_dict = \
                         torch.load(Dname, map_location=lambda storage, loc: storage)
                     netsD[i].load_state_dict(state_dict)
@@ -173,7 +174,7 @@ class condGANTrainer(object):
             netD = netsD[i]
             torch.save(netD.state_dict(),
                 '%s/netD%d.pth' % (self.model_dir, i))
-        print('Save G/Ds models.')
+        self.logger.info('Save G/Ds models.')
 
     def set_requires_grad_value(self, models_list, brequires):
         for i in range(len(models_list)):
@@ -194,9 +195,10 @@ class condGANTrainer(object):
                 lr_img = None
             attn_maps = attention_maps[i]
             att_sze = attn_maps.size(2)
+            # print(img.shape, lr_img.shape, attn_maps.shape) # debug
             img_set, _ = \
-                build_super_images(img, captions, self.ixtoword,
-                                   attn_maps, att_sze, lr_imgs=lr_img)
+                build_super_images(img[:, :3], captions, self.ixtoword,
+                                   attn_maps, att_sze, lr_imgs=lr_img[:, :3])
             if img_set is not None:
                 im = Image.fromarray(img_set)
                 fullpath = '%s/G_%s_%d_%d.png'\
@@ -213,7 +215,7 @@ class condGANTrainer(object):
                                     None, cap_lens,
                                     None, self.batch_size)
         img_set, _ = \
-            build_super_images(fake_imgs[i].detach().cpu(),
+            build_super_images(fake_imgs[i][:, :3].detach().cpu(),
                                captions, self.ixtoword, att_maps, att_sze)
         if img_set is not None:
             im = Image.fromarray(img_set)
@@ -323,7 +325,7 @@ class condGANTrainer(object):
                     "kl_loss":kl_loss
                 }, global_step=gen_iterations)
                 if gen_iterations % 100 == 0:
-                    print(D_logs + '\n' + G_logs)
+                    self.logger.info(D_logs + '\n' + G_logs)
                 # save images
                 if gen_iterations % 1000 == 0:
                     backup_para = copy_G_params(netG)
@@ -332,6 +334,7 @@ class condGANTrainer(object):
                                           words_embs, mask, image_encoder,
                                           captions, cap_lens, epoch, name='average')
                     load_params(netG, backup_para)
+                    self.logger.info("save image result...")
                     #
                     # self.save_img_results(netG, fixed_noise, sent_emb,
                     #                       words_embs, mask, image_encoder,
@@ -339,11 +342,11 @@ class condGANTrainer(object):
                     #                       epoch, name='current')
             end_t = time.time()
 
-            print('''[%d/%d][%d]
-                  Loss_D: %.2f Loss_G: %.2f Time: %.2fs'''
-                  % (epoch, self.max_epoch, self.num_batches,
-                     errD_total.item(), errG_total.item(),
-                     end_t - start_t))
+            self.logger.info('''[{}/{}][{}]
+                Loss_D: {:.2f} Loss_G: {:.2f} Time: {:.2fs}'''.format(
+                epoch, self.max_epoch, self.num_batches,
+                errD_total.item(), errG_total.item(),
+                end_t - start_t))
 
             if epoch % cfg.TRAIN.SNAPSHOT_INTERVAL == 0:  # and epoch != 0:
                 self.save_model(netG, avg_param_G, netsD, epoch)
@@ -371,7 +374,7 @@ class condGANTrainer(object):
 
     def sampling(self, split_dir):
         if cfg.TRAIN.NET_G == '':
-            print('Error: the path for morels is not found!')
+            self.logger.error('Error: the path for morels is not found!')
         else:
             if split_dir == 'test':
                 split_dir = 'valid'
@@ -388,7 +391,7 @@ class condGANTrainer(object):
             state_dict = \
                 torch.load(cfg.TRAIN.NET_E, map_location=lambda storage, loc: storage)
             text_encoder.load_state_dict(state_dict)
-            print('Load text encoder from:', cfg.TRAIN.NET_E)
+            self.logger.info('Load text encoder from: {}'.format(cfg.TRAIN.NET_E))
             text_encoder = text_encoder.cuda()
             text_encoder.eval()
 
@@ -402,7 +405,7 @@ class condGANTrainer(object):
                 torch.load(model_dir, map_location=lambda storage, loc: storage)
             # state_dict = torch.load(cfg.TRAIN.NET_G)
             netG.load_state_dict(state_dict)
-            print('Load G from: ', model_dir)
+            self.logger.info('Load G from: {}'.format(model_dir))
 
             # the path to save generated images
             s_tmp = model_dir[:model_dir.rfind('.pth')]
@@ -415,7 +418,7 @@ class condGANTrainer(object):
                 for step, data in enumerate(self.data_loader, 0):
                     cnt += batch_size
                     if step % 100 == 0:
-                        print('step: ', step)
+                        self.logger.info('step: {}'.format(step))
                     # if step > 50:
                     #     break
 
@@ -455,7 +458,7 @@ class condGANTrainer(object):
 
     def gen_example(self, data_dic):
         if cfg.TRAIN.NET_G == '':
-            print('Error: the path for morels is not found!')
+            self.logger.error('Error: the path for morels is not found!')
         else:
             # Build and load the generator
             text_encoder = \
@@ -463,7 +466,7 @@ class condGANTrainer(object):
             state_dict = \
                 torch.load(cfg.TRAIN.NET_E, map_location=lambda storage, loc: storage)
             text_encoder.load_state_dict(state_dict)
-            print('Load text encoder from:', cfg.TRAIN.NET_E)
+            self.logger.info('Load text encoder from:{}'.format(cfg.TRAIN.NET_E))
             text_encoder = text_encoder.cuda()
             text_encoder.eval()
 
@@ -477,7 +480,7 @@ class condGANTrainer(object):
             state_dict = \
                 torch.load(model_dir, map_location=lambda storage, loc: storage)
             netG.load_state_dict(state_dict)
-            print('Load G from: ', model_dir)
+            self.logger.info('Load G from: {}'.format(model_dir))
             netG.cuda()
             netG.eval()
             for key in data_dic:
@@ -531,7 +534,7 @@ class condGANTrainer(object):
                             attn_maps = attention_maps[k]
                             att_sze = attn_maps.size(2)
                             img_set, sentences = \
-                                build_super_images2(im[j].unsqueeze(0),
+                                build_super_images2(im[j][:3].unsqueeze(0),
                                                     captions[j].unsqueeze(0),
                                                     [cap_lens_np[j]], self.ixtoword,
                                                     [attn_maps[j]], att_sze)

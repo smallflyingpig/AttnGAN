@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 from miscc.config import cfg, cfg_from_file
+from miscc.utils import get_logger, mkdir_p
 from datasets import TextDataset
 from trainer import condGANTrainer as trainer
 
@@ -12,6 +13,7 @@ import pprint
 import datetime
 import dateutil.tz
 import argparse
+import logging
 import numpy as np
 
 from tensorboardX import SummaryWriter
@@ -87,6 +89,7 @@ def gen_example(wordtoix, algo):
     algo.gen_example(data_dic)
 
 
+
 #python main.py --cfg cfg/coco_attn2.yml --gpu 3
 # sample: python main.py --cfg cfg/eval_bird.yml --gpu 1
 if __name__ == "__main__":
@@ -101,8 +104,6 @@ if __name__ == "__main__":
 
     if args.data_dir != '':
         cfg.DATA_DIR = args.data_dir
-    print('Using config:')
-    pprint.pprint(cfg)
 
     if not cfg.TRAIN.FLAG:
         args.manualSeed = 100
@@ -118,7 +119,9 @@ if __name__ == "__main__":
     timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
     output_dir = '../output/%s_%s_%s' % \
         (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp)
-
+    mkdir_p(output_dir)
+    logger = get_logger(output_dir)
+    logger.info(cfg)
     split_dir, bshuffle = 'train', True
     if not cfg.TRAIN.FLAG:
         # bshuffle = False
@@ -127,19 +130,20 @@ if __name__ == "__main__":
     # Get data loader
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM - 1))
     image_transform = transforms.Compose([
-        transforms.Resize(int(imsize * 76 / 64)),
-        transforms.RandomCrop(imsize),
-        transforms.RandomHorizontalFlip()])
+        transforms.Resize(int(imsize * 80 / 64)),
+        # transforms.RandomCrop(imsize),
+        # transforms.RandomHorizontalFlip()
+        ])
     dataset = TextDataset(cfg.DATA_DIR, split_dir,
                           base_size=cfg.TREE.BASE_SIZE,
-                          transform=image_transform)
+                          transform=image_transform, mask=cfg.TRAIN.MASK_COND)
     assert dataset
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=cfg.TRAIN.BATCH_SIZE,
         drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
 
     # Define models and go to train/evaluate
-    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword)
+    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword, logger)
 
     start_t = time.time()
     if cfg.TRAIN.FLAG:

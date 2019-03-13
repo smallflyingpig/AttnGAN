@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-from miscc.utils import mkdir_p
+from miscc.utils import mkdir_p, get_logger
 from miscc.utils import build_super_images
 from miscc.losses import sent_loss, words_loss
 from miscc.config import cfg, cfg_from_file
@@ -18,6 +18,7 @@ import pprint
 import datetime
 import dateutil.tz
 import argparse
+import logging
 import numpy as np
 from PIL import Image
 
@@ -219,6 +220,7 @@ def build_models():
     return text_encoder, image_encoder, labels, start_epoch
 
 
+
 if __name__ == "__main__":
     args = parse_args()
     if args.cfg_file is not None:
@@ -231,8 +233,9 @@ if __name__ == "__main__":
 
     if args.data_dir != '':
         cfg.DATA_DIR = args.data_dir
-    print('Using config:')
-    pprint.pprint(cfg)
+    
+    # print('Using config:')
+    # pprint.pprint(cfg)
 
     if not cfg.TRAIN.FLAG:
         args.manualSeed = 100
@@ -249,6 +252,10 @@ if __name__ == "__main__":
     timestamp = now.strftime('%Y_%m_%d_%H_%M_%S')
     output_dir = '../output/%s_%s_%s' % \
         (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp)
+    
+    # logging
+    logger = get_logger(output_dir)
+    logger.info(cfg)
 
     log_dir = os.path.join(output_dir, 'Log')
     model_dir = os.path.join(output_dir, 'Model')
@@ -304,14 +311,14 @@ if __name__ == "__main__":
             count = train(dataloader, image_encoder, text_encoder,
                           batch_size, labels, optimizer, epoch,
                           dataset.ixtoword, image_dir, writer)
-            print('-' * 89)
+            logger.info('-' * 89)
             if len(dataloader_val) > 0:
                 s_loss, w_loss = evaluate(dataloader_val, image_encoder,
                                           text_encoder, batch_size, writer, count, dataset.ixtoword)
-                print('| end epoch {:3d} | valid loss '
+                logger.info('| end epoch {:3d} | valid loss '
                       '{:6.4f} {:6.4f} | lr {:.5f}|'
                       .format(epoch, s_loss, w_loss, lr))
-            print('-' * 89)
+            logger.info('-' * 89)
             if lr > cfg.TRAIN.ENCODER_LR/10.:
                 lr *= 0.98
 
@@ -321,7 +328,7 @@ if __name__ == "__main__":
                            '%s/image_encoder%d.pth' % (model_dir, epoch))
                 torch.save(text_encoder.state_dict(),
                            '%s/text_encoder%d.pth' % (model_dir, epoch))
-                print('Save G/Ds models.')
+                logger.info('Save G/Ds models.')
     except KeyboardInterrupt:
-        print('-' * 89)
-        print('Exiting from training early')
+        logger.info('-' * 89)
+        logger.info('Exiting from training early')
