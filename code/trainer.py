@@ -447,7 +447,7 @@ class condGANTrainer(object):
                             mkdir_p(folder)
                         k = -1
                         # for k in range(len(fake_imgs)):
-                        im = fake_imgs[k][j].data.cpu().numpy()
+                        im = fake_imgs[k][j][:3].data.cpu().numpy()
                         # [-1, 1] --> [0, 255]
                         im = (im + 1.0) * 127.5
                         im = im.astype(np.uint8)
