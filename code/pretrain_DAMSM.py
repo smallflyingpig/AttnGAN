@@ -37,7 +37,6 @@ dir_path = (os.path.abspath(os.path.join(os.path.realpath(__file__), './.')))
 sys.path.append(dir_path)
 
 
-UPDATE_INTERVAL = 200
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a DAMSM network')
     parser.add_argument('--cfg', dest='cfg_file',
@@ -47,12 +46,13 @@ def parse_args():
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--eval', action='store_true', default=False, help='enable eval mode')
+    parser.add_argument('--update_interval', type=int, default=200, help="update interval" )
     args = parser.parse_args()
     return args
 
 
 def train(dataloader, cnn_model, rnn_model, batch_size,
-          labels, optimizer, epoch, ixtoword, image_dir, writer):
+          labels, optimizer, epoch, ixtoword, image_dir, writer, logger, update_interval):
     cnn_model.train()
     rnn_model.train()
     s_total_loss0 = 0
@@ -102,29 +102,30 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
                                       cfg.TRAIN.RNN_GRAD_CLIP)
         optimizer.step()
 
+        global_step = epoch * len(dataloader) + step
         writer.add_scalars(main_tag="batch_loss", tag_scalar_dict={
             "loss":loss.cpu().item(),
             "w_loss0":w_loss0.cpu().item(),
             "w_loss1":w_loss1.cpu().item(),
             "s_loss0":s_loss0.cpu().item(),
             "s_loss1":s_loss1.cpu().item()
-        }, global_step=epoch * len(dataloader) + step)
+        }, global_step=global_step)
 
-        if step % UPDATE_INTERVAL == 0:
+        if step % update_interval == 0:
             count = epoch * len(dataloader) + step
 
-            s_cur_loss0 = s_total_loss0 / UPDATE_INTERVAL
-            s_cur_loss1 = s_total_loss1 / UPDATE_INTERVAL
+            s_cur_loss0 = s_total_loss0 / update_interval
+            s_cur_loss1 = s_total_loss1 / update_interval
 
-            w_cur_loss0 = w_total_loss0 / UPDATE_INTERVAL
-            w_cur_loss1 = w_total_loss1 / UPDATE_INTERVAL
+            w_cur_loss0 = w_total_loss0 / update_interval
+            w_cur_loss1 = w_total_loss1 / update_interval
 
             elapsed = time.time() - start_time
-            print('| epoch {:3d} | {:5d}/{:5d} batches | ms/batch {:5.2f} | '
+            logger.info('| epoch {:3d} | {:5d}/{:5d} batches | ms/batch {:5.2f} | '
                   's_loss {:6.4f} {:6.4f} | '
                   'w_loss {:6.4f} {:6.4f}'
                   .format(epoch, step, len(dataloader),
-                          elapsed * 1000. / UPDATE_INTERVAL,
+                          elapsed * 1000. / update_interval,
                           s_cur_loss0, s_cur_loss1,
                           w_cur_loss0, w_cur_loss1))
             s_total_loss0 = 0
@@ -133,6 +134,7 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
             w_total_loss1 = 0
             start_time = time.time()
             # attention Maps
+        if global_step % (10*update_interval) == 0:
             img_set, _ = \
                 build_super_images(imgs[-1][:,:3].cpu(), captions,
                                    ixtoword, attn_maps, att_sze)
@@ -258,8 +260,8 @@ def main(args):
     batch_size = cfg.TRAIN.BATCH_SIZE
     image_transform = transforms.Compose([
         transforms.Resize(int(imsize * 80 / 64)),
-        #transforms.RandomCrop(imsize),
-        #transforms.RandomHorizontalFlip()
+        transforms.RandomCrop(imsize),
+        transforms.RandomHorizontalFlip()
         ])
     dataset = TextDataset(cfg.DATA_DIR, 'train',
                           base_size=cfg.TREE.BASE_SIZE,
@@ -311,7 +313,7 @@ def main(args):
             epoch_start_time = time.time()
             count = train(dataloader, image_encoder, text_encoder,
                           batch_size, labels, optimizer, epoch,
-                          dataset.ixtoword, image_dir, writer)
+                          dataset.ixtoword, image_dir, writer, logger, args.update_interval)
             logger.info('-' * 89)
             if len(dataloader_val) > 0:
                 s_loss, w_loss = evaluate(dataloader_val, image_encoder,
