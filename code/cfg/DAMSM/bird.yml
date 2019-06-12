@@ -13,7 +13,7 @@ TREE:
 
 TRAIN:
     FLAG: True
-    NET_E: ''  # '../DAMSMencoders/bird/text_encoder200.pth'
+    NET_E: '' # '/media/ubuntu/HDD2/jiguo/servers/jiguo_mft_server/AttnGAN/DAMSMencoders/bird/text_encoder550_mask.pth' #'../DAMSMencoders/bird/text_encoder200.pth'
     BATCH_SIZE: 48
     MAX_EPOCH: 600
     SNAPSHOT_INTERVAL: 50
@@ -23,7 +23,7 @@ TRAIN:
         GAMMA1: 4.0  # 1,2,5 good 4 best  10&100bad
         GAMMA2: 5.0
         GAMMA3: 10.0  # 10good 1&100bad
-    MASK_COND: True
+    MASK_COND: False  #True
 
 
 TEXT:

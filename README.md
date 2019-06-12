@@ -7,7 +7,7 @@ with Attentional Generative Adversarial Networks](https://arxiv.org/pdf/1711.104
 
 
 ### Dependencies
-python 2.7
+python 3.5+
 
 Pytorch
 
