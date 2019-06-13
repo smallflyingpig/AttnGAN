@@ -23,10 +23,81 @@ if sys.version_info[0] == 2:
     import cPickle as pickle
 else:
     import pickle
+import librosa
+import scipy.signal
+
+
+windows = {'hamming': scipy.signal.hamming,
+        'hann': scipy.signal.hann, 'blackman': scipy.signal.blackman,
+           'bartlett': scipy.signal.bartlett}
+
+def load_one_audio_file(path, audio_conf={}, windows=windows):
+    audio_type = audio_conf.get('audio_type', 'melspectrogram')
+    if audio_type not in ['melspectrogram', 'spectrogram']:
+        raise ValueError('Invalid audio_type specified in audio_conf. Must be one of [melspectrogram, spectrogram]')
+    preemph_coef = audio_conf.get('preemph_coef', 0.97)
+    sample_rate = audio_conf.get('sample_rate', 16000)
+    window_size = audio_conf.get('window_size', 0.025)
+    window_stride = audio_conf.get('window_stride', 0.01)
+    window_type = audio_conf.get('window_type', 'hamming')
+    num_mel_bins = audio_conf.get('num_mel_bins', 40)
+    target_length = audio_conf.get('target_length', 2048)
+    use_raw_length = audio_conf.get('use_raw_length', False)
+    padval = audio_conf.get('padval', 0)
+    fmin = audio_conf.get('fmin', 20)
+    n_fft = audio_conf.get('n_fft', int(sample_rate * window_size))
+    win_length = int(sample_rate * window_size)
+    hop_length = int(sample_rate * window_stride)
+    # load audio, subtract DC, preemphasis
+    # print("load audio file:{}".format(path))
+    y, sr = librosa.load(path, sample_rate)
+    if y.size == 0:
+        y = np.zeros(200)
+    y = y - y.mean()
+    y = preemphasis(y, preemph_coef)
+    # compute mel spectrogram
+    stft = librosa.stft(y, n_fft=n_fft, hop_length=hop_length,
+        win_length=win_length,
+        window=windows.get(window_type, windows['hamming']))
+    spec = np.abs(stft)**2
+    if audio_type == 'melspectrogram':
+        mel_basis = librosa.filters.mel(sr, n_fft, n_mels=num_mel_bins, fmin=fmin)
+        melspec = np.dot(mel_basis, spec)
+        logspec = librosa.power_to_db(melspec, ref=np.max)
+    elif audio_type == 'spectrogram':
+        logspec = librosa.power_to_db(spec, ref=np.max)
+    n_frames = logspec.shape[1]
+    if use_raw_length:
+        target_length = n_frames
+    p = target_length - n_frames
+    if p > 0:
+        logspec = np.pad(logspec, ((0,0),(0,p)), 'constant',
+            constant_values=(padval, padval))
+    elif p < 0:
+        logspec = logspec[:,0:p]
+        n_frames = target_length
+
+    return logspec, n_frames
+
+
+def preemphasis(signal,coeff=0.97):
+    """perform preemphasis on the input signal.
+    
+    :param signal: The signal to filter.
+    :param coeff: The preemphasis coefficient. 0 is none, default 0.97.
+    :returns: the filtered signal.
+    """    
+    return np.append(signal[0],signal[1:]-coeff*signal[:-1])
 
 
 def prepare_data(data):
-    imgs, captions, captions_lens, class_ids, keys = data
+    if len(data) == 5:
+        imgs, captions, captions_lens, class_ids, keys = data
+    elif len(data) == 7:
+        imgs, texts, text_lens, captions, captions_lens, class_ids, keys = data
+        captions_lens = captions_lens//64
+    else:
+        raise NotImplementedError
 
     # sort data by the length in a decreasing order
     sorted_cap_lens, sorted_cap_indices = \
@@ -36,21 +107,22 @@ def prepare_data(data):
     for i in range(len(imgs)):
         imgs[i] = imgs[i][sorted_cap_indices]
         if cfg.CUDA:
-            real_imgs.append(Variable(imgs[i]).cuda())
+            real_imgs.append(imgs[i].cuda())
         else:
-            real_imgs.append(Variable(imgs[i]))
+            real_imgs.append(imgs[i])
 
-    captions = captions[sorted_cap_indices].squeeze()
+    captions = captions[sorted_cap_indices].squeeze().float()
+    sorted_cap_lens = sorted_cap_lens.long()
     class_ids = class_ids[sorted_cap_indices].numpy()
     # sent_indices = sent_indices[sorted_cap_indices]
     keys = [keys[i] for i in sorted_cap_indices.numpy()]
     # print('keys', type(keys), keys[-1])  # list
     if cfg.CUDA:
-        captions = Variable(captions).cuda()
-        sorted_cap_lens = Variable(sorted_cap_lens).cuda()
+        captions = captions.cuda()
+        sorted_cap_lens = (sorted_cap_lens).cuda()
     else:
-        captions = Variable(captions)
-        sorted_cap_lens = Variable(sorted_cap_lens)
+        captions = (captions)
+        sorted_cap_lens = (sorted_cap_lens)
 
     return [real_imgs, captions, sorted_cap_lens,
             class_ids, keys]
@@ -176,7 +248,7 @@ def get_imgs_with_mask(img_path, imsize, bbox=None,
 class TextDataset(data.Dataset):
     def __init__(self, data_dir, split='train',
                  base_size=64,
-                 transform=None, target_transform=None, mask=False):
+                 transform=None, target_transform=None, mask=False, audio_flag=False):
         self.transform = transform
         self.img_channel = 4 if mask else 3
         self.norm = transforms.Compose([
@@ -184,6 +256,7 @@ class TextDataset(data.Dataset):
         self.target_transform = target_transform
         self.mask = mask
         self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE
+        self.audio_flag = audio_flag
 
         self.imsize = []
         for i in range(cfg.TREE.BRANCH_NUM):
@@ -395,7 +468,15 @@ class TextDataset(data.Dataset):
         sent_ix = random.randint(0, self.embeddings_num)
         new_sent_ix = index * self.embeddings_num + sent_ix
         caps, cap_len = self.get_caption(new_sent_ix)
-        return imgs, caps, cap_len, cls_id, key
+        if self.audio_flag:
+            audio_name = '%s/CUB_200_2011_audio/audio/0/%s_%d.wav' % (self.data_dir, key, sent_ix)
+            audio, audio_len = load_one_audio_file(audio_name, audio_conf={
+                'num_mel_bins':40,
+                'target_length':2048
+            })
+            return imgs, caps, cap_len, audio, audio_len, cls_id, key
+        else:
+            return imgs, caps, cap_len, cls_id, key
 
 
     def __len__(self):

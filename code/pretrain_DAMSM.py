@@ -9,6 +9,7 @@ from datasets import TextDataset
 from datasets import prepare_data
 
 from model import RNN_ENCODER, CNN_ENCODER
+from audio_encoder import CNNRNN_Attn
 
 import os
 import sys
@@ -47,6 +48,7 @@ def parse_args():
     parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--eval', action='store_true', default=False, help='enable eval mode')
     parser.add_argument('--update_interval', type=int, default=200, help="update interval" )
+    parser.add_argument('--audio_flag', action='store_true', default=False, help="")
     args = parser.parse_args()
     return args
 
@@ -68,8 +70,6 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
 
         imgs, captions, cap_lens, \
             class_ids, keys = prepare_data(data)
-
-
         # words_features: batch_size x nef x 17 x 17
         # sent_code: batch_size x nef
         words_features, sent_code = cnn_model(imgs[-1])
@@ -77,10 +77,10 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
         nef, att_sze = words_features.size(1), words_features.size(2)
         # words_features = words_features.view(batch_size, nef, -1)
 
-        hidden = rnn_model.init_hidden(batch_size)
+        # hidden = rnn_model.init_hidden(batch_size)
         # words_emb: batch_size x nef x seq_len
         # sent_emb: batch_size x nef
-        words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
+        words_emb, sent_emb = rnn_model(captions, cap_lens)
 
         w_loss0, w_loss1, attn_maps = words_loss(words_features, words_emb, labels,
                                                  cap_lens, class_ids, batch_size)
@@ -160,8 +160,8 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size, writer, count, ixtowo
         # words_features = words_features.view(batch_size, nef, -1)
         nef, att_sze = words_features.size(1), words_features.size(2)
 
-        hidden = rnn_model.init_hidden(batch_size)
-        words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
+        # hidden = rnn_model.init_hidden(batch_size)
+        words_emb, sent_emb = rnn_model(captions, cap_lens)
 
         w_loss0, w_loss1, attn = words_loss(words_features, words_emb, labels,
                                             cap_lens, class_ids, batch_size)
@@ -195,9 +195,12 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size, writer, count, ixtowo
     return s_cur_loss, w_cur_loss
 
 
-def build_models(dataset, batch_size):
+def build_models(dataset, batch_size, audio_flag=False):
     # build model ############################################################
-    text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
+    if audio_flag:
+        text_encoder = CNNRNN_Attn(40, nhidden=cfg.TEXT.EMBEDDING_DIM)
+    else:
+        text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
     image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM, condition=cfg.TRAIN.MASK_COND, condition_channel=1)
     labels = torch.LongTensor(range(batch_size))
     start_epoch = 0
@@ -266,7 +269,7 @@ def main(args):
     dataset = TextDataset(cfg.DATA_DIR, 'train',
                           base_size=cfg.TREE.BASE_SIZE,
                           transform=image_transform,
-                          mask=cfg.TRAIN.MASK_COND)
+                          mask=cfg.TRAIN.MASK_COND, audio_flag=args.audio_flag)
 
     print(dataset.n_words, dataset.embeddings_num)
     assert dataset
@@ -284,7 +287,7 @@ def main(args):
         shuffle=False, num_workers=int(cfg.WORKERS))
     writer = SummaryWriter(logdir=log_dir)
     # Train ##############################################################
-    text_encoder, image_encoder, labels, start_epoch = build_models(dataset, batch_size)
+    text_encoder, image_encoder, labels, start_epoch = build_models(dataset, batch_size, args.audio_flag)
     para = list(text_encoder.parameters())
     for v in image_encoder.parameters():
         if v.requires_grad:
@@ -340,6 +343,7 @@ def main(args):
 
 if __name__ == "__main__":
     args = parse_args()
+    print(args)
     if args.cfg_file is not None:
         cfg_from_file(args.cfg_file)
 

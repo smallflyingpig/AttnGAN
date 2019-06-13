@@ -130,7 +130,11 @@ class RNN_ENCODER(nn.Module):
             return Variable(weight.new(self.nlayers * self.num_directions,
                                        bsz, self.nhidden).zero_())
 
-    def forward(self, captions, cap_lens, hidden, mask=None):
+    def forward(self, captions, cap_lens, hidden=None, mask=None):
+        if hidden is None:
+            batch_size = captions.shape[0]
+            hidden = self.init_hidden(batch_size)
+        
         # input: torch.LongTensor of size batch x n_steps
         # --> emb: batch x n_steps x ninput
         emb = self.drop(self.encoder(captions))
@@ -157,6 +161,8 @@ class RNN_ENCODER(nn.Module):
             sent_emb = hidden.transpose(0, 1).contiguous()
         sent_emb = sent_emb.view(-1, self.nhidden * self.num_directions)
         return words_emb, sent_emb
+
+
 
 
 class CNN_ENCODER(nn.Module):

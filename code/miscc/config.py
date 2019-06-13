@@ -63,6 +63,9 @@ __C.TEXT.CAPTIONS_PER_IMAGE = 10
 __C.TEXT.EMBEDDING_DIM = 256
 __C.TEXT.WORDS_NUM = 18
 
+__C.AUDIO = edict()
+__C.AUDIO.RNN_LAYERS = 1
+__C.AUDIO.ATTN_LAYERS = 1
 
 def _merge_a_into_b(a, b):
     """Merge config dictionary a into config dictionary b, clobbering the
