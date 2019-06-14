@@ -201,7 +201,7 @@ def build_models(dataset, batch_size, audio_flag=False):
         text_encoder = CNNRNN_Attn(40, nhidden=cfg.TEXT.EMBEDDING_DIM)
     else:
         text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
-    image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM, condition=cfg.TRAIN.MASK_COND, condition_channel=1)
+    image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM, condition=cfg.TRAIN.MASK_COND, condition_channel=0)
     labels = torch.LongTensor(range(batch_size))
     start_epoch = 0
     if cfg.TRAIN.NET_E != '':
@@ -281,7 +281,7 @@ def main(args):
     dataset_val = TextDataset(cfg.DATA_DIR, 'test',
                               base_size=cfg.TREE.BASE_SIZE,
                               transform=image_transform,
-                              mask=cfg.TRAIN.MASK_COND)
+                              mask=cfg.TRAIN.MASK_COND, audio_flag=args.audio_flag)
     dataloader_val = torch.utils.data.DataLoader(
         dataset_val, batch_size=batch_size, drop_last=True,
         shuffle=False, num_workers=int(cfg.WORKERS))
