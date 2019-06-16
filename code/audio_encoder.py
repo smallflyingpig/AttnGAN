@@ -104,13 +104,14 @@ class MultiHeadAttention(nn.Module):
         
 class CNNRNN_Attn(nn.Module):
     def __init__(self, n_filters, embedding_dim=1024, rop_prob=0.5,
-                 nhidden=256, nlayers=1, bidirectional=True):
+                 nhidden=256, nlayers=1, bidirectional=True, nsent=2048):
         super(CNNRNN_Attn, self).__init__()
         self.bidirectional = bidirectional
         self.num_direction = 2 if bidirectional else 1
         self.embedding_dim = embedding_dim
         self.nhidden = nhidden // self.num_direction
         self.rnn_layers = nlayers
+        self.nsent = nsent // self.num_direction
         self.BN1 = nn.Sequential(
             # 1 x 40 x frames
             nn.BatchNorm2d(1),
@@ -138,14 +139,14 @@ class CNNRNN_Attn(nn.Module):
         )
         
         self.RNN = nn.LSTM(self.embedding_dim, self.nhidden, num_layers=self.rnn_layers, batch_first=True, bidirectional=self.bidirectional)
-        self.out_RNN = nn.LSTM(self.nhidden*self.num_direction, self.nhidden, num_layers=self.rnn_layers, batch_first=True, bidirectional=self.bidirectional)
+        self.out_RNN = nn.LSTM(self.nhidden*self.num_direction, self.nsent, num_layers=self.rnn_layers, batch_first=True, bidirectional=self.bidirectional)
         self.attn = MultiHeadAttention(4, self.nhidden*self.num_direction)
         # self.apply(self.weights_init)
 
-    def init_hidden(self, x):
+    def init_hidden(self, x, n_dim):
         batch_size = x.shape[0]
-        rtn = (torch.zeros(self.num_direction, batch_size, self.nhidden, device=x.device).requires_grad_(),
-                torch.zeros(self.num_direction, batch_size, self.nhidden, device=x.device).requires_grad_())
+        rtn = (torch.zeros(self.num_direction, batch_size, n_dim, device=x.device).requires_grad_(),
+                torch.zeros(self.num_direction, batch_size, n_dim, device=x.device).requires_grad_())
         return rtn
         
     @staticmethod
@@ -174,22 +175,30 @@ class CNNRNN_Attn(nn.Module):
         x = x.transpose(1,2)
         cap_lens = (cap_lens).data.tolist()
         batch_size, length = x.shape[:2]
-        h0 = self.init_hidden(x)
+        h0 = self.init_hidden(x, self.nhidden)
         x = pack_padded_sequence(x, cap_lens, batch_first=True)
         output, hidden = self.RNN(x, h0)
         output = pad_packed_sequence(output, batch_first=True, total_length=length)[0]
         #print(output.shape)
         output = output.view(batch_size, length, self.rnn_layers, self.num_direction*self.nhidden)
-        out = output[:, :, -1, :].squeeze()
-        out = self.attn(out, out, out)
+        # out = hidden[0].view(batch_size, self.num_direction*self.nhidden)
+        # print(output.shape)
+        out = self.attn(output, output, output)
+        # [B, length, embedding_dim]
+        # print(out.shape)
 
-        h0 = self.init_hidden(out)
+        words_emb = out.transpose(1, 2)
+        # [B, embedding_dim, length]
+
+        h0 = self.init_hidden(out, self.nsent)
+        # print(h0[0].device)
         out = pack_padded_sequence(out, cap_lens, batch_first=True)
         output, hidden = self.out_RNN(out, h0)
-        output = pad_packed_sequence(output, batch_first=True, total_length=length)[0]
+        # output = pad_packed_sequence(output, batch_first=True, total_length=length)[0]
 
-        words_emb = output.transpose(1, 2)
+        
         sent_emb = hidden[0].transpose(0, 1).contiguous()
-        sent_emb = sent_emb.view(-1, self.nhidden * self.num_direction)
+        sent_emb = sent_emb.view(-1, self.nsent * self.num_direction)
+        # print(words_emb.shape, sent_emb.shape)
         return words_emb, sent_emb
         

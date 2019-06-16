@@ -91,13 +91,12 @@ def preemphasis(signal,coeff=0.97):
 
 
 def prepare_data(data):
-    if len(data) == 5:
+    audio_flag = len(data)==7
+    if not audio_flag:
         imgs, captions, captions_lens, class_ids, keys = data
-    elif len(data) == 7:
+    else:
         imgs, texts, text_lens, captions, captions_lens, class_ids, keys = data
         captions_lens = captions_lens//64
-    else:
-        raise NotImplementedError
 
     # sort data by the length in a decreasing order
     sorted_cap_lens, sorted_cap_indices = \
@@ -111,8 +110,11 @@ def prepare_data(data):
         else:
             real_imgs.append(imgs[i])
 
-    captions = captions[sorted_cap_indices].squeeze().float()
-    sorted_cap_lens = sorted_cap_lens.long()
+    if audio_flag:
+        captions = captions.float()
+        sorted_cap_indices = sorted_cap_indices.long()
+    captions = captions[sorted_cap_indices].squeeze()
+    sorted_cap_lens = sorted_cap_lens
     class_ids = class_ids[sorted_cap_indices].numpy()
     # sent_indices = sent_indices[sorted_cap_indices]
     keys = [keys[i] for i in sorted_cap_indices.numpy()]
