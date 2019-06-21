@@ -323,12 +323,12 @@ class CNN_ENCODER(nn.Module):
         # x = self.fc(x)
 
         # global image features
-        # cnn_code = self.emb_cnn_code(x)
+        cnn_code = self.emb_cnn_code(x)
         # 512
-        # if features is not None:
-        #     features = self.emb_features(features)
-        # return features, cnn_code
-        return features, x
+        if features is not None:
+            features = self.emb_features(features)
+        return features, cnn_code
+        # return features, x
 
     
 
