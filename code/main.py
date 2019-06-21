@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument('--gpu', dest='gpu_id', type=int, default=-1)
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
+    parser.add_argument('--audio_flag', action='store_true', default=False, help="")
     args = parser.parse_args()
     return args
 
@@ -136,14 +137,14 @@ if __name__ == "__main__":
         ])
     dataset = TextDataset(cfg.DATA_DIR, split_dir,
                           base_size=cfg.TREE.BASE_SIZE,
-                          transform=image_transform, mask=cfg.TRAIN.MASK_COND)
+                          transform=image_transform, mask=cfg.TRAIN.MASK_COND, audio_flag=args.audio_flag)
     assert dataset
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=cfg.TRAIN.BATCH_SIZE,
         drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
 
     # Define models and go to train/evaluate
-    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword, logger)
+    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword, logger, args.audio_flag)
 
     start_t = time.time()
     if cfg.TRAIN.FLAG:

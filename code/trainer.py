@@ -19,6 +19,7 @@ from miscc.utils import weights_init, load_params, copy_G_params
 from model import G_DCGAN, G_NET
 from datasets import prepare_data
 from model import RNN_ENCODER, CNN_ENCODER
+from audio_encoder import CNNRNN_Attn
 
 from miscc.losses import words_loss
 from miscc.losses import discriminator_loss, generator_loss, KL_loss
@@ -29,7 +30,7 @@ import sys
 
 # ################# Text to image task############################ #
 class condGANTrainer(object):
-    def __init__(self, output_dir, data_loader, n_words, ixtoword, logger):
+    def __init__(self, output_dir, data_loader, n_words, ixtoword, logger, audio_flag=False):
         if cfg.TRAIN.FLAG:
             self.model_dir = os.path.join(output_dir, 'Model')
             self.image_dir = os.path.join(output_dir, 'Image')
@@ -50,6 +51,7 @@ class condGANTrainer(object):
         self.ixtoword = ixtoword
         self.data_loader = data_loader
         self.num_batches = len(self.data_loader)
+        self.audio_flag = audio_flag
 
     def build_models(self):
         # ###################encoders######################################## #
@@ -67,9 +69,11 @@ class condGANTrainer(object):
             p.requires_grad = False
         self.logger.info('Load image encoder from: {}'.format(img_encoder_path))
         image_encoder.eval()
-
-        text_encoder = \
-            RNN_ENCODER(self.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
+        if self.audio_flag:
+            text_encoder = CNNRNN_Attn(n_filters=40, nhidden=cfg.TEXT.EMBEDDING_DIM, nsent=cfg.TEXT.SENT_EMBEDDING_DIM)
+        else:
+            text_encoder = \
+                RNN_ENCODER(self.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM, nsent=cfg.TEXT.SENT_EMBEDDING_DIM)
         state_dict = \
             torch.load(cfg.TRAIN.NET_E,
                        map_location=lambda storage, loc: storage)
@@ -259,10 +263,14 @@ class condGANTrainer(object):
                 # sent_emb: batch_size x nef
                 words_embs, sent_emb = text_encoder(captions, cap_lens)
                 words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
-                mask = (captions == 0)
-                num_words = words_embs.size(2)
-                if mask.size(1) > num_words:
-                    mask = mask[:, :num_words]
+                if self.audio_flag:
+                    mask = torch.ByteTensor([[0]*cap_len.item() + [1]*(32-cap_len.item()) for cap_len in cap_lens])
+                    mask = mask.to(words_embs.device)
+                else:
+                    mask = (captions == 0)
+                    num_words = words_embs.size(2)
+                    if mask.size(1) > num_words:
+                        mask = mask[:, :num_words]
 
                 #######################################################
                 # (2) Generate fake images

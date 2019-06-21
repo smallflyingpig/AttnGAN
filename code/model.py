@@ -74,7 +74,7 @@ class ResBlock(nn.Module):
 # ############## Text2Image Encoder-Decoder #######
 class RNN_ENCODER(nn.Module):
     def __init__(self, ntoken, ninput=300, drop_prob=0.5,
-                 nhidden=128, nlayers=1, bidirectional=True, nsent=1024):
+                 nhidden=128, nlayers=1, bidirectional=True, nsent=1024, output_rnn=False):
         super(RNN_ENCODER, self).__init__()
         self.n_steps = cfg.TEXT.WORDS_NUM
         self.ntoken = ntoken  # size of the dictionary
@@ -90,6 +90,7 @@ class RNN_ENCODER(nn.Module):
         # number of features in the hidden state
         self.nhidden = nhidden // self.num_directions
         self.nsent = nsent // self.num_directions
+        self.output_rnn = output_rnn
 
         self.define_module()
         self.init_weights()
@@ -104,18 +105,20 @@ class RNN_ENCODER(nn.Module):
                                self.nlayers, batch_first=True,
                                dropout=self.drop_prob,
                                bidirectional=self.bidirectional)
-            self.out_rnn = nn.LSTM(self.nhidden*self.num_directions, 
-                self.nsent, self.nlayers, batch_first=True, dropout=self.drop_prob,
-                bidirectional=self.bidirectional)
+            if self.output_rnn:
+                self.out_rnn = nn.LSTM(self.nhidden*self.num_directions, 
+                    self.nsent, self.nlayers, batch_first=True, dropout=self.drop_prob,
+                    bidirectional=self.bidirectional)
         elif self.rnn_type == 'GRU':
             self.rnn = nn.GRU(self.ninput, self.nhidden,
                               self.nlayers, batch_first=True,
                               dropout=self.drop_prob,
                               bidirectional=self.bidirectional)
-            self.out_rnn = nn.GRU(self.nhidden*self.num_directions, self.nsent,
-                              self.nlayers, batch_first=True,
-                              dropout=self.drop_prob,
-                              bidirectional=self.bidirectional)
+            if self.output_rnn:
+                self.out_rnn = nn.GRU(self.nhidden*self.num_directions, self.nsent,
+                                  self.nlayers, batch_first=True,
+                                  dropout=self.drop_prob,
+                                  bidirectional=self.bidirectional)
         else:
             raise NotImplementedError
 
@@ -130,13 +133,13 @@ class RNN_ENCODER(nn.Module):
     def init_hidden(self, bsz, n_dim):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return (Variable(weight.new(self.nlayers * self.num_directions,
-                                        bsz, n_dim).zero_()),
-                    Variable(weight.new(self.nlayers * self.num_directions,
-                                        bsz, n_dim).zero_()))
+            return ((weight.new(self.nlayers * self.num_directions,
+                                        bsz, n_dim).zero_().requires_grad_(True)),
+                    (weight.new(self.nlayers * self.num_directions,
+                                        bsz, n_dim).zero_().requires_grad_(True)))
         else:
-            return Variable(weight.new(self.nlayers * self.num_directions,
-                                       bsz, n_dim).zero_())
+            return (weight.new(self.nlayers * self.num_directions,
+                                       bsz, n_dim).zero_().requires_grad_(True))
 
     def forward(self, captions, cap_lens, hidden=None, mask=None):
         if hidden is None:
@@ -163,18 +166,19 @@ class RNN_ENCODER(nn.Module):
         # --> batch x hidden_size*num_directions x seq_len
         words_emb = output.transpose(1, 2)
         # --> batch x num_directions*hidden_size
-        # if self.rnn_type == 'LSTM':
-        #     sent_emb = hidden[0].transpose(0, 1).contiguous()
-        # else:
-        #     sent_emb = hidden.transpose(0, 1).contiguous()
-        # sent_emb = sent_emb.view(-1, self.nhidden * self.num_directions)
-
         # for output sent
-        batch_size = words_emb.shape[0]
-        h0 = self.init_hidden(batch_size, self.nsent)
-        emb = pack_padded_sequence(output, cap_lens, batch_first=True)
-        output, hidden = self.out_rnn(emb, h0)
-        sent_emb = hidden[0].view(batch_size, self.nsent*self.num_directions)
+        if self.output_rnn:
+            batch_size = words_emb.shape[0]
+            h0 = self.init_hidden(batch_size, self.nsent)
+            emb = pack_padded_sequence(output, cap_lens, batch_first=True)
+            output, hidden = self.out_rnn(emb, h0)
+            sent_emb = hidden[0].view(batch_size, self.nsent*self.num_directions)
+        else:
+            if self.rnn_type == 'LSTM':
+                sent_emb = hidden[0].transpose(0, 1).contiguous()
+            else:
+                sent_emb = hidden.transpose(0, 1).contiguous()
+            sent_emb = sent_emb.view(-1, self.nhidden * self.num_directions)
         return words_emb, sent_emb
 
 
