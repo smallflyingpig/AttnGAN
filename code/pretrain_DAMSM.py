@@ -198,9 +198,11 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size, writer, count, ixtowo
 def build_models(dataset, batch_size, audio_flag=False):
     # build model ############################################################
     if audio_flag:
-        text_encoder = CNNRNN_Attn(40, nhidden=cfg.TEXT.EMBEDDING_DIM)
+        text_encoder = CNNRNN_Attn(40, nhidden=cfg.TEXT.EMBEDDING_DIM, nsent=cfg.TEXT.SENT_EMBEDDING_DIM)
     else:
-        text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM, nsent=cfg.TEXT.SENT_EMBEDDING_DIM)
+        text_encoder = RNN_ENCODER(
+            dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM, nsent=cfg.TEXT.SENT_EMBEDDING_DIM
+            )
     image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM, condition=cfg.TRAIN.MASK_COND, condition_channel=0)
     labels = torch.LongTensor(range(batch_size))
     start_epoch = 0
